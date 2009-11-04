@@ -1,3 +1,11 @@
+# LE Grammar for LE Grammars..
+# ..conversion to Treetop grammars (http://treetop.rubyforge.org/)
+#
+# This code is mostly naturally borrowed from http://piumarta.com/software/peg/
+#
+#
+# Below is the original header from leg.leg (this file's precursor)
+##
 # LE Grammar for LE Grammars
 # 
 # Copyright (c) 2007 by Ian Piumarta
@@ -18,9 +26,6 @@
 # Last edited: 2007-09-13 08:12:17 by piumarta on emilia.local
 
 %{
-# include "tree.h"
-# include "version.h"
-
 # include <stdio.h>
 # include <stdlib.h>
 # include <unistd.h>
@@ -36,6 +41,7 @@
   };
 
   FILE *input= 0;
+  FILE *output= 0;
 
   int   verboseFlag= 0;
 
@@ -58,47 +64,49 @@
 
 # define YY_LOCAL(T)	static T
 # define YY_RULE(T)	static T
+
+
+
 %}
 
 # Hierarchical syntax
 
 grammar=	- ( declaration | definition )+ trailer? end-of-file
 
-declaration=	'%{' < ( !'%}' . )* > RPERCENT		{ makeHeader(yytext); }						#{YYACCEPT}
+declaration=	'%{' < ( !'%}' . )* > RPERCENT		{ fprintf(output, "\n=begin TODO Convert me!\n%s\n=end\n", yytext); }						#{YYACCEPT}
 
-trailer=	'%%' < .* >				{ makeTrailer(yytext); }					#{YYACCEPT}
+trailer=	'%%' < .* >				{ fprintf(output, "\n=begin TODO Convert me!\n%s\n=end\n", yytext); }					#{YYACCEPT}
 
-definition=	identifier 				{ if (push(beginRule(findRule(yytext)))->rule.expression)
-							    fprintf(stderr, "rule '%s' redefined\n", yytext); }
-			EQUAL expression		{ Node *e= pop();  Rule_setExpression(pop(), e); }
+definition=	identifier 				{ fprintf(output, "\nrule %s do\n", yytext); }
+			EQUAL expression		{ fprintf(output, "end\n"); /* Node *e= pop();  Rule_setExpression(pop(), e); */ }
 			SEMICOLON?											#{YYACCEPT}
 
-expression=	sequence (BAR sequence			{ Node *f= pop();  push(Alternate_append(pop(), f)); }
+expression=	sequence (BAR sequence			{ /* Node *f= pop();  push(Alternate_append(pop(), f)); */ }
 			    )*
 
-sequence=	prefix (prefix				{ Node *f= pop();  push(Sequence_append(pop(), f)); }
+sequence=	prefix (prefix				{ /* Node *f= pop();  push(Sequence_append(pop(), f)); */ }
 			  )*
 
-prefix=		AND action				{ push(makePredicate(yytext)); }
-|		AND suffix				{ push(makePeekFor(pop())); }
-|		NOT suffix				{ push(makePeekNot(pop())); }
+prefix=		AND action				{ /* push(makePredicate(yytext)); */ }
+|		AND suffix				{ /* push(makePeekFor(pop())); */ }
+|		NOT suffix				{ /* push(makePeekNot(pop())); */ }
 |		    suffix
 
-suffix=		primary (QUESTION			{ push(makeQuery(pop())); }
-			     | STAR			{ push(makeStar (pop())); }
-			     | PLUS			{ push(makePlus (pop())); }
+suffix=		primary (QUESTION			{ /* push(makeQuery(pop())); */ }
+			     | STAR			{ /* push(makeStar (pop())); */ }
+			     | PLUS			{ /* push(makePlus (pop())); */ }
 			   )?
 
-primary=	identifier				{ push(makeVariable(yytext)); }
-			COLON identifier !EQUAL		{ Node *name= makeName(findRule(yytext));  name->name.variable= pop();  push(name); }
-|		identifier !EQUAL			{ push(makeName(findRule(yytext))); }
+primary=	identifier				{ /* push(makeVariable(yytext)); */ }
+			COLON identifier !EQUAL		{ /* Node *name= makeName(findRule(yytext));  name->name.variable= pop();  push(name); */ }
+|		identifier !EQUAL			{ /* push(makeName(findRule(yytext))); */ }
 |		OPEN expression CLOSE
-|		literal					{ push(makeString(yytext)); }
-|		class					{ push(makeClass(yytext)); }
-|		DOT					{ push(makeDot()); }
-|		action					{ push(makeAction(yytext)); }
-|		BEGIN					{ push(makePredicate("YY_BEGIN")); }
-|		END					{ push(makePredicate("YY_END")); }
+|		literal					{ /* push(makeString(yytext)); */ }
+|		class					{ /* push(makeClass(yytext)); */ }
+|		DOT					{ /* push(makeDot()); */ }
+|		action					{ /* push(makeAction(yytext)); */ }
+|		BEGIN					{ /* push(makePredicate("YY_BEGIN")); */ }
+|		END					{ /* push(makePredicate("YY_END")); */ }
 
 # Lexical syntax
 
@@ -183,20 +191,13 @@ void makeTrailer(char *text)
   trailer= strdup(text);
 }
 
-static void version(char *name)
-{
-  printf("%s version %d.%d.%d\n", name, PEG_MAJOR, PEG_MINOR, PEG_LEVEL);
-}
-
 static void usage(char *name)
 {
-  version(name);
   fprintf(stderr, "usage: %s [<option>...] [<file>...]\n", name);
   fprintf(stderr, "where <option> can be\n");
   fprintf(stderr, "  -h          print this help information\n");
   fprintf(stderr, "  -o <ofile>  write output to <ofile>\n");
   fprintf(stderr, "  -v          be verbose\n");
-  fprintf(stderr, "  -V          print version number and exit\n");
   fprintf(stderr, "if no <file> is given, input is read from stdin\n");
   fprintf(stderr, "if no <ofile> is given, output is written to stdout\n");
   exit(1);
@@ -204,7 +205,7 @@ static void usage(char *name)
 
 int main(int argc, char **argv)
 {
-  Node *n;
+/*  Node *n; */
   int   c;
 
   output= stdout;
@@ -212,14 +213,10 @@ int main(int argc, char **argv)
   lineNumber= 1;
   fileName= "<stdin>";
 
-  while (-1 != (c= getopt(argc, argv, "Vho:v")))
+  while (-1 != (c= getopt(argc, argv, "ho:v")))
     {
       switch (c)
 	{
-	case 'V':
-	  version(basename(argv[0]));
-	  exit(0);
-
 	case 'h':
 	  usage(basename(argv[0]));
 	  break;
@@ -273,17 +270,21 @@ int main(int argc, char **argv)
     if (!yyparse())
       yyerror("syntax error");
 
+/*
   if (verboseFlag)
     for (n= rules;  n;  n= n->any.next)
       Rule_print(n);
 
   Rule_compile_c_header();
+*/
 
   for (; headers;  headers= headers->next)
     fprintf(output, "%s\n", headers->text);
 
+/*
   if (rules)
     Rule_compile_c(rules);
+*/
 
   if (trailer)
     fprintf(output, "%s\n", trailer);
