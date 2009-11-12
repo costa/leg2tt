@@ -5,6 +5,10 @@
 #
 #
 # Below is the original header from leg.leg (this file's precursor)
+#
+# TODO:
+#   - original comments are NOT preserved, a pity!
+#
 ##
 # LE Grammar for LE Grammars
 # 
@@ -26,12 +30,21 @@
 # Last edited: 2007-09-13 08:12:17 by piumarta on emilia.local
 
 %{
+
+#define RULE_ID_MAX_LEN 127
+#define RULE_ID_DASH "__"
+/* TODO rm? #define RULE_ID_CAPITAL "%c_" */
+#define RULE_ID_MAX_CHAR_LEN 2
+#define ACTION_BODY_MAX_LEN 4095
+
+
 # include <stdio.h>
 # include <stdlib.h>
 # include <unistd.h>
 # include <string.h>
 # include <libgen.h>
 # include <assert.h>
+#include <ctype.h>
 
   typedef struct Header Header;
 
@@ -65,7 +78,40 @@
 # define YY_LOCAL(T)	static T
 # define YY_RULE(T)	static T
 
+  static const char* rule_id(const char* def_id)
+  {
+    static char buf[RULE_ID_MAX_LEN + 1] = " ";
+    char* pb = buf + 1;
 
+    for (const char* pc = def_id; *pc != '\0' &&
+                 (pb - buf) < (RULE_ID_MAX_LEN - RULE_ID_MAX_CHAR_LEN); pc++)
+      if (*pc == '-')
+        pb += sprintf(pb, RULE_ID_DASH);
+/* TODO rm?      else if (isupper(*pc))
+        pb += sprintf(pb, RULE_ID_CAPITAL, tolower(*pc)); */
+      else
+        *(pb++) = *pc;
+    *pb = '\0';
+
+    return buf;
+  }
+
+  static void fcomment_cont(FILE* out, const char* comment)
+  {
+    const char* panl;
+
+    while (comment != NULL) {
+      panl = strchr(comment, '\n');
+
+      if (panl != NULL) {
+        fwrite(comment, (++panl) - comment, 1, out);
+        fputs("  # ", out);
+      } else
+        fputs(comment, out);
+
+      comment = panl;
+    }
+  }
 
 %}
 
@@ -77,12 +123,12 @@ declaration=	'%{' < ( !'%}' . )* > RPERCENT		{ fprintf(output, "\n=begin TODO Co
 
 trailer=	'%%' < .* >				{ fprintf(output, "\n=begin TODO Convert me!\n%s\n=end\n", yytext); }					#{YYACCEPT}
 
-definition=	identifier 				{ fprintf(output, "\nrule %s do\n", yytext); }
-			EQUAL expression		{ fprintf(output, "end\n"); /* Node *e= pop();  Rule_setExpression(pop(), e); */ }
+definition=	identifier 				{ fprintf(output, "\nrule %s do\n", rule_id(yytext)); }
+			EQUAL expression		{ fprintf(output, "\nend\n"); }
 			SEMICOLON?											#{YYACCEPT}
 
-expression=	sequence (BAR sequence			{ /* Node *f= pop();  push(Alternate_append(pop(), f)); */ }
-			    )*
+expression=	sequence (BAR		                { fputs(" /", output); }
+			sequence )*
 
 sequence=	prefix (prefix				{ /* Node *f= pop();  push(Sequence_append(pop(), f)); */ }
 			  )*
@@ -92,19 +138,22 @@ prefix=		AND action				{ /* push(makePredicate(yytext)); */ }
 |		NOT suffix				{ /* push(makePeekNot(pop())); */ }
 |		    suffix
 
-suffix=		primary (QUESTION			{ /* push(makeQuery(pop())); */ }
-			     | STAR			{ /* push(makeStar (pop())); */ }
-			     | PLUS			{ /* push(makePlus (pop())); */ }
+suffix=		primary (QUESTION			{ fputs("? ", output); }
+			     | STAR			{ fputs("* ", output); }
+			     | PLUS			{ fputs("+ ", output); }
 			   )?
 
-primary=	identifier				{ /* push(makeVariable(yytext)); */ }
-			COLON identifier !EQUAL		{ /* Node *name= makeName(findRule(yytext));  name->name.variable= pop();  push(name); */ }
-|		identifier !EQUAL			{ /* push(makeName(findRule(yytext))); */ }
-|		OPEN expression CLOSE
+primary=	identifier			#	{ fputs(rule_id(yytext), output); }
+			COLON identifier !EQUAL	#	{ fprintf(output, "/ %s", rule_id(yytext)); }
+|		identifier !EQUAL			{ fputs(rule_id(yytext), output); }
+|		OPEN                                    { fputs(" (", output); }
+			expression CLOSE                { fputs(" )", output); }
 |		literal					{ /* push(makeString(yytext)); */ }
 |		class					{ /* push(makeClass(yytext)); */ }
 |		DOT					{ /* push(makeDot()); */ }
-|		action					{ /* push(makeAction(yytext)); */ }
+|		action					{ fprintf(output, "  # TODO Convert me! ");
+                                                          fcomment_cont(output, yytext);
+                                                          fputc('\n', output); }
 |		BEGIN					{ /* push(makePredicate("YY_BEGIN")); */ }
 |		END					{ /* push(makePredicate("YY_END")); */ }
 
@@ -145,7 +194,7 @@ BEGIN=		'<' -
 END=		'>' -
 RPERCENT=	'%}' -
 
--=		(space | comment)*
+-=		(space | comment)*                      
 space=		' ' | '\t' | end-of-line
 comment=	'#' (!end-of-line .)* end-of-line
 end-of-line=	'\r\n' | '\n' | '\r'
