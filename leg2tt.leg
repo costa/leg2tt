@@ -6,9 +6,6 @@
 #
 # Below is the original header from leg.leg (this file's precursor)
 #
-# TODO:
-#   - original comments are NOT preserved, a pity!
-#
 ##
 # LE Grammar for LE Grammars
 # 
@@ -30,12 +27,12 @@
 # Last edited: 2007-09-13 08:12:17 by piumarta on emilia.local
 
 %{
+#define CAPITALS_ARE_BAD_FOR_RUBY
 
-#define RULE_ID_MAX_LEN 127
-#define RULE_ID_DASH "__"
-/* TODO rm? #define RULE_ID_CAPITAL "%c_" */
-#define RULE_ID_MAX_CHAR_LEN 2
-#define ACTION_BODY_MAX_LEN 4095
+#define RUBY_SYM_MAX_LEN 127
+#define RUBY_SYM_DASH "__"
+
+#define RUBY_SYM_MAX_CHAR_LEN 2
 
 
 # include <stdio.h>
@@ -44,27 +41,17 @@
 # include <string.h>
 # include <libgen.h>
 # include <assert.h>
-#include <ctype.h>
+# include <ctype.h>
 
-  typedef struct Header Header;
-
-  struct Header {
-    char   *text;
-    Header *next;
-  };
 
   FILE *input= 0;
   FILE *output= 0;
 
-  int   verboseFlag= 0;
+  int	verboseFlag= 0;
 
   static int	 lineNumber= 0;
   static char	*fileName= 0;
-  static char	*trailer= 0;
-  static Header	*headers= 0;
 
-  void makeHeader(char *text);
-  void makeTrailer(char *text);
 
   void yyerror(char *message);
 
@@ -78,19 +65,24 @@
 # define YY_LOCAL(T)	static T
 # define YY_RULE(T)	static T
 
-  static const char* rule_id(const char* def_id)
+  static const char* ruby_sym(const char* def_id)
   {
-    static char buf[RULE_ID_MAX_LEN + 1] = " ";
-    char* pb = buf + 1;
+    static char buf[RUBY_SYM_MAX_LEN + 1];
+    char* pb = buf;
 
     for (const char* pc = def_id; *pc != '\0' &&
-                 (pb - buf) < (RULE_ID_MAX_LEN - RULE_ID_MAX_CHAR_LEN); pc++)
+		 (pb - buf) < (RUBY_SYM_MAX_LEN - RUBY_SYM_MAX_CHAR_LEN); pc++)
       if (*pc == '-')
-        pb += sprintf(pb, RULE_ID_DASH);
-/* TODO rm?      else if (isupper(*pc))
-        pb += sprintf(pb, RULE_ID_CAPITAL, tolower(*pc)); */
-      else
-        *(pb++) = *pc;
+	pb += sprintf(pb, RUBY_SYM_DASH);
+#ifdef CAPITALS_ARE_BAD_FOR_RUBY
+      else if (isupper(*pc)) {
+        if (pc != def_id)
+          *(pb++) = '_';
+	*(pb++) = tolower(*pc);
+      }
+#endif
+      else /* TODO rm? if (!isspace(*pc)) */
+	*(pb++) = *pc;
     *pb = '\0';
 
     return buf;
@@ -100,17 +92,19 @@
   {
     const char* panl;
 
+    fputs("  # TODO [Convert me!] ", out);
+
     while (comment != NULL) {
       panl = strchr(comment, '\n');
 
       if (panl != NULL) {
-        fwrite(comment, (++panl) - comment, 1, out);
-        fputs("  # ", out);
+	fwrite(comment, (++panl) - comment, 1, out);
+	fputs("	 # ", out);
       } else
-        fputs(comment, out);
-
+	fputs(comment, out);
       comment = panl;
     }
+    fputc('\n', out);
   }
 
 %}
@@ -119,43 +113,49 @@
 
 grammar=	- ( declaration | definition )+ trailer? end-of-file
 
-declaration=	'%{' < ( !'%}' . )* > RPERCENT		{ fprintf(output, "\n=begin TODO Convert me!\n%s\n=end\n", yytext); }						#{YYACCEPT}
+declaration=	'%{' < ( !'%}' . )* > RPERCENT		{ fcomment_cont(output, yytext); }
 
-trailer=	'%%' < .* >				{ fprintf(output, "\n=begin TODO Convert me!\n%s\n=end\n", yytext); }					#{YYACCEPT}
+trailer=	'%%' < .* >				{ fcomment_cont(output, yytext); }
 
-definition=	identifier 				{ fprintf(output, "\nrule %s do\n", rule_id(yytext)); }
-			EQUAL expression		{ fprintf(output, "\nend\n"); }
-			SEMICOLON?											#{YYACCEPT}
+definition=	( identifier				{ fprintf(output, "\nrule %s\n", ruby_sym(yytext)); } )
+			EQUAL expression
+			SEMICOLON?			{ fprintf(output, "\nend\n"); }
 
-expression=	sequence (BAR		                { fputs(" /", output); }
+expression=	sequence ( ( BAR			{ fputs(" / ", output); } )
 			sequence )*
 
-sequence=	prefix (prefix				{ /* Node *f= pop();  push(Sequence_append(pop(), f)); */ }
+sequence=	( prefix				{ fputc(' ', output); } )
+			( prefix			{ fputc(' ', output); }
 			  )*
 
-prefix=		AND action				{ /* push(makePredicate(yytext)); */ }
-|		AND suffix				{ /* push(makePeekFor(pop())); */ }
-|		NOT suffix				{ /* push(makePeekNot(pop())); */ }
+prefix=		AND action				{ fprintf(output, " &{");
+							  fcomment_cont(output, yytext);
+							  fputs(" }", output); }
+|		( AND					  { fputs(" &", output); } )
+			suffix
+|		( NOT					  { fputs(" !", output); } )
+			suffix
 |		    suffix
 
-suffix=		primary (QUESTION			{ fputs("? ", output); }
-			     | STAR			{ fputs("* ", output); }
-			     | PLUS			{ fputs("+ ", output); }
+suffix=		primary (QUESTION			{ fputs("?", output); }
+			     | STAR			{ fputs("*", output); }
+			     | PLUS			{ fputs("+", output); }
 			   )?
 
-primary=	identifier			#	{ fputs(rule_id(yytext), output); }
-			COLON identifier !EQUAL	#	{ fprintf(output, "/ %s", rule_id(yytext)); }
-|		identifier !EQUAL			{ fputs(rule_id(yytext), output); }
-|		OPEN                                    { fputs(" (", output); }
-			expression CLOSE                { fputs(" )", output); }
-|		literal					{ /* push(makeString(yytext)); */ }
-|		class					{ /* push(makeClass(yytext)); */ }
-|		DOT					{ /* push(makeDot()); */ }
-|		action					{ fprintf(output, "  # TODO Convert me! ");
-                                                          fcomment_cont(output, yytext);
-                                                          fputc('\n', output); }
-|		BEGIN					{ /* push(makePredicate("YY_BEGIN")); */ }
-|		END					{ /* push(makePredicate("YY_END")); */ }
+primary=	( identifier				  { fputs(ruby_sym(yytext), output); } )
+			COLON identifier !EQUAL		{ fputc(':', output);
+							  fputs(ruby_sym(yytext), output); }
+|		( identifier !EQUAL			{ fputs(ruby_sym(yytext), output); } )
+|		( OPEN					  { fputs("(", output); } )
+			expression CLOSE		{ fputs(")", output); }
+|		literal					{ fprintf(output, "\"%s\"", yytext); }
+|		class					{ fprintf(output, "[%s]", yytext); }
+|		DOT					{ fputc('.', output); }
+|		action					{ fprintf(output, " {");
+							  fcomment_cont(output, yytext);
+							  fputs(" }", output); }
+|		BEGIN					{ fputs(" yy_", output); }
+|		END					{ fputs(" _yy", output); }
 
 # Lexical syntax
 
@@ -194,7 +194,7 @@ BEGIN=		'<' -
 END=		'>' -
 RPERCENT=	'%}' -
 
--=		(space | comment)*                      
+-=		(space | comment)*
 space=		' ' | '\t' | end-of-line
 comment=	'#' (!end-of-line .)* end-of-line
 end-of-line=	'\r\n' | '\n' | '\r'
@@ -227,26 +227,14 @@ void yyerror(char *message)
   exit(1);
 }
 
-void makeHeader(char *text)
-{
-  Header *header= (Header *)malloc(sizeof(Header));
-  header->text= strdup(text);
-  header->next= headers;
-  headers= header;
-}
-
-void makeTrailer(char *text)
-{
-  trailer= strdup(text);
-}
 
 static void usage(char *name)
 {
   fprintf(stderr, "usage: %s [<option>...] [<file>...]\n", name);
   fprintf(stderr, "where <option> can be\n");
-  fprintf(stderr, "  -h          print this help information\n");
-  fprintf(stderr, "  -o <ofile>  write output to <ofile>\n");
-  fprintf(stderr, "  -v          be verbose\n");
+  fprintf(stderr, "  -h		 print this help information\n");
+  fprintf(stderr, "  -o <ofile>	 write output to <ofile>\n");
+  fprintf(stderr, "  -v		 be verbose\n");
   fprintf(stderr, "if no <file> is given, input is read from stdin\n");
   fprintf(stderr, "if no <ofile> is given, output is written to stdout\n");
   exit(1);
@@ -254,8 +242,7 @@ static void usage(char *name)
 
 int main(int argc, char **argv)
 {
-/*  Node *n; */
-  int   c;
+  int	c;
 
   output= stdout;
   input= stdin;
@@ -309,34 +296,27 @@ int main(int argc, char **argv)
 	      fileName= *argv;
 	    }
 	  lineNumber= 1;
-	  if (!yyparse())
-	    yyerror("syntax error");
-	  if (input != stdin)
-	    fclose(input);
 	}
     }
+
+  fprintf(output, "# Preprocessed for leg->treetop conversion by leg2tt\n"
+    "# Please complete the task: eliminate TODOs, yy_'s and _yy's, change the name\n"
+    "# WARNINGs:\n# - original comments are NOT preserved (FIXME)\n"
+    "# - in-rule code blocks may need to be parenthesised along with the expressions they refer to (FIXME?)\n"
+    "# - the literals got double-quoted, watch for undesired in-string evaluations\n"
+    "# - the rule names got rubified, watch for accidental duplications\n"
+                                               "\ngrammar GrammarName\n\n");
+  if (!yyparse())
+    yyerror("Syntax error!\nNote: at the moment Treetop doesn't seem to allow code blocks inside a sequence,\nPlease consider extra parenthesis if it looks like that kind of a problem.");
   else
-    if (!yyparse())
-      yyerror("syntax error");
+    fputs("\n\n\nrule yy_\n ''\nend\nrule _yy\n ''\nend\nend\n", output);
 
-/*
-  if (verboseFlag)
-    for (n= rules;  n;  n= n->any.next)
-      Rule_print(n);
+  if (input != stdin)
+    fclose(input);
 
-  Rule_compile_c_header();
-*/
+  if (output != stdout)
+    fclose(output);
 
-  for (; headers;  headers= headers->next)
-    fprintf(output, "%s\n", headers->text);
-
-/*
-  if (rules)
-    Rule_compile_c(rules);
-*/
-
-  if (trailer)
-    fprintf(output, "%s\n", trailer);
 
   return 0;
 }
