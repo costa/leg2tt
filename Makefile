@@ -12,7 +12,7 @@ CC = gcc -std=gnu99
 
 all : leg2tt
 
-test : check .FORCE  # lame
+test : check .FORCE  # lame?
 
 check : leg2tt .FORCE
 	./leg2tt -vo leg2tt.tt leg2tt.leg

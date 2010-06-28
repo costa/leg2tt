@@ -148,7 +148,8 @@ primary=	( identifier				  { fputs(ruby_sym(yytext), output); } )
 |		( identifier !EQUAL			{ fputs(ruby_sym(yytext), output); } )
 |		( OPEN					  { fputs("(", output); } )
 			expression CLOSE		{ fputs(")", output); }
-|		literal					{ fprintf(output, "\"%s\"", yytext); }
+|		literal_s					{ fprintf(output, "%s", yytext); }
+|		literal_d					{ fprintf(output, "\"%s\"", yytext); }
 |		class					{ fprintf(output, "[%s]", yytext); }
 |		DOT					{ fputc('.', output); }
 |		action					{ fprintf(output, " {");
@@ -161,8 +162,8 @@ primary=	( identifier				  { fputs(ruby_sym(yytext), output); } )
 
 identifier=	< [-a-zA-Z_][-a-zA-Z_0-9]* > -
 
-literal=	['] < ( !['] char )* > ['] -
-|		["] < ( !["] char )* > ["] -
+literal_s=	['] < ( !['] char )* > ['] -
+literal_d=	["] < ( !["] char )* > ["] -
 
 class=		'[' < ( !']' range )* > ']' -
 
@@ -303,7 +304,6 @@ int main(int argc, char **argv)
     "# Please complete the task: eliminate TODOs, yy_'s and _yy's, change the name\n"
     "# WARNINGs:\n# - original comments are NOT preserved (FIXME)\n"
     "# - in-rule code blocks may need to be parenthesised along with the expressions they refer to (FIXME?)\n"
-    "# - the literals got double-quoted, watch for undesired in-string evaluations\n"
     "# - the rule names got rubified, watch for accidental duplications\n"
                                                "\ngrammar GrammarName\n\n");
   if (!yyparse())
